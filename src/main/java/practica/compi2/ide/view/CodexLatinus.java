@@ -4,6 +4,15 @@
  */
 package practica.compi2.ide.view;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import javax.swing.JFileChooser;
+import javax.swing.JOptionPane;
+
 /**
  *
  * @author Enmer-LAPTOP
@@ -31,7 +40,7 @@ public class CodexLatinus extends javax.swing.JFrame {
     private void initComponents() {
 
         jScrollPane1 = new javax.swing.JScrollPane();
-        jTextPane1 = new javax.swing.JTextPane();
+        textIde = new javax.swing.JTextPane();
         lblLine = new javax.swing.JLabel();
         lblLine1 = new javax.swing.JLabel();
         jScrollPane2 = new javax.swing.JScrollPane();
@@ -50,7 +59,7 @@ public class CodexLatinus extends javax.swing.JFrame {
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
-        jScrollPane1.setViewportView(jTextPane1);
+        jScrollPane1.setViewportView(textIde);
 
         lblLine.setFont(new java.awt.Font("Segoe UI", 0, 18)); // NOI18N
         lblLine.setText("Line:");
@@ -69,9 +78,11 @@ public class CodexLatinus extends javax.swing.JFrame {
         jMenu1.setText("File");
 
         newFileButton.setText("New FIle");
+        newFileButton.addActionListener(this::newFileButtonActionPerformed);
         jMenu1.add(newFileButton);
 
         openFileButton.setText("Open File");
+        openFileButton.addActionListener(this::openFileButtonActionPerformed);
         jMenu1.add(openFileButton);
 
         saveFileButton.setText("Save File");
@@ -100,41 +111,85 @@ public class CodexLatinus extends javax.swing.JFrame {
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
                 .addGap(17, 17, 17)
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(layout.createSequentialGroup()
-                        .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 139, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addGap(18, 18, 18)
-                        .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE))
-                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                        .addComponent(jScrollPane2, javax.swing.GroupLayout.DEFAULT_SIZE, 2044, Short.MAX_VALUE)
+                        .addGap(6, 6, 6)
+                        .addComponent(lblLine, javax.swing.GroupLayout.PREFERRED_SIZE, 200, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                        .addComponent(lblLine1, javax.swing.GroupLayout.PREFERRED_SIZE, 186, javax.swing.GroupLayout.PREFERRED_SIZE))
+                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                        .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 1883, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 1883, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addGroup(layout.createSequentialGroup()
-                            .addGap(6, 6, 6)
-                            .addComponent(lblLine, javax.swing.GroupLayout.PREFERRED_SIZE, 200, javax.swing.GroupLayout.PREFERRED_SIZE)
-                            .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                            .addComponent(lblLine1, javax.swing.GroupLayout.PREFERRED_SIZE, 186, javax.swing.GroupLayout.PREFERRED_SIZE))
-                        .addComponent(jScrollPane1)))
-                .addContainerGap(23, Short.MAX_VALUE))
+                            .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 139, javax.swing.GroupLayout.PREFERRED_SIZE)
+                            .addGap(46, 46, 46)
+                            .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE))))
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
                 .addGap(16, 16, 16)
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 662, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 554, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(lblLine)
                     .addComponent(lblLine1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addGap(18, 18, 18)
-                .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 276, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(46, 46, 46)
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                    .addComponent(jButton2, javax.swing.GroupLayout.DEFAULT_SIZE, 51, Short.MAX_VALUE)
-                    .addComponent(jButton1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                .addContainerGap(27, Short.MAX_VALUE))
+                .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 253, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 51, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 51, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
 
         pack();
     }// </editor-fold>//GEN-END:initComponents
+
+    private void newFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_newFileButtonActionPerformed
+        // TODO add your handling code here:
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Please specify de directory");        
+        int file = fc.showSaveDialog(this);
+        
+        if(file == JFileChooser.APPROVE_OPTION){
+            File newFile = fc.getSelectedFile();
+            try {
+                if(newFile.createNewFile()){
+                    JOptionPane.showMessageDialog(this, "File created " + newFile.getName());
+                } else {
+                    JOptionPane.showMessageDialog(this, "File alrady exists");
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this, "Error creating file: " + e.getMessage());
+            }
+        }
+    }//GEN-LAST:event_newFileButtonActionPerformed
+
+    private void openFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_openFileButtonActionPerformed
+        // TODO add your handling code here:
+        JFileChooser file = new JFileChooser();
+        file.setDialogTitle("Open File");
+        int openFile = file.showOpenDialog(this);
+        if(openFile == JFileChooser.APPROVE_OPTION){
+            try {
+                FileInputStream fileOpen = new FileInputStream(file.getSelectedFile());
+                BufferedReader br = new BufferedReader(new InputStreamReader(fileOpen));
+                StringBuffer text = new StringBuffer();
+                String read;
+                while((read = br.readLine()) != null){
+                    text.append(read).append("\n");
+                }
+                textIde.setText(text.toString());
+            } catch (FileNotFoundException ex) {
+                JOptionPane.showMessageDialog(this, "Error " + ex.getMessage(), "Error", JOptionPane.WARNING_MESSAGE);
+            } catch (IOException e){
+                JOptionPane.showMessageDialog(this, "Error " + e.getMessage(), "Error", JOptionPane.WARNING_MESSAGE);
+            }
+            
+        }
+    }//GEN-LAST:event_openFileButtonActionPerformed
 
     /**
      * @param args the command line arguments
@@ -173,11 +228,11 @@ public class CodexLatinus extends javax.swing.JFrame {
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JScrollPane jScrollPane2;
     private javax.swing.JTextArea jTextArea1;
-    private javax.swing.JTextPane jTextPane1;
     private javax.swing.JLabel lblLine;
     private javax.swing.JLabel lblLine1;
     private javax.swing.JMenuItem newFileButton;
     private javax.swing.JMenuItem openFileButton;
     private javax.swing.JMenuItem saveFileButton;
+    private javax.swing.JTextPane textIde;
     // End of variables declaration//GEN-END:variables
 }
