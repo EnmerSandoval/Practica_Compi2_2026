@@ -4,22 +4,65 @@
  */
 package practica.compi2.ide.view;
 
+import org.antlr.v4.runtime.*;
+import practica.compi2.GrammarParser;
+import practica.compi2.errors.RecuperacionException;
+import practica.compi2.errors.RecuperacionPanico;
+import practica.compi2.ide.graph.*;
+import practica.compi2.semantic.SemanticAnalyzer;
+import practica.compi2.semantic.SymbolTable;
+import practica.compi2.tree.ast.ProgramNode;
+import practica.compi2.visitors.AstBuilderVisitor;
+import practica.compi2.words.PaintWord;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+import javax.swing.JButton;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
+import javax.swing.text.Element;
+import javax.swing.JDialog;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableModel;
+
+import practica.compi2.GrammarLexer;
+import practica.compi2.errors.CompileError;
+import practica.compi2.interprete.ConsolaIO;
+import practica.compi2.interprete.ErrorEjecucion;
+import practica.compi2.interprete.Interprete;
+import practica.compi2.semantic.FunctionSymbol;
+import practica.compi2.semantic.Scope;
+import practica.compi2.semantic.StructSymbol;
+import practica.compi2.semantic.VariableSymbol;
 
 /**
  *
  * @author Enmer-LAPTOP
  */
 public class CodexLatinus extends javax.swing.JFrame {
-    
-    private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(CodexLatinus.class.getName());
+    private static final int MAX_ERRORES_MOSTRADOS = 40;
+    private static final Pattern PATRON_ERROR = Pattern.compile("^\\[\\w+\\] (\\d+):(\\d+) - .*$");
+
+    private final PaintWord paintWord = new PaintWord();
+
+    private File archivoActual;
+    private ProgramNode astActual;
+    private SymbolTable tablaSimbolos;
+    private List<PasoPila> pasosPila;
 
     /**
      * Creates new form CodexLatinus
@@ -28,6 +71,25 @@ public class CodexLatinus extends javax.swing.JFrame {
         initComponents();
         setLocationRelativeTo(null);
         setTitle("IDE Codex Latinus");
+        
+        textIde.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                colorearDespues();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                colorearDespues();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                // el propio coloreado dispara este evento al cambiar estilos;
+                // si lo escuchamos entramos en un ciclo infinito de recolorear
+            }
+        });
+        
     }
 
     /**
@@ -56,9 +118,16 @@ public class CodexLatinus extends javax.swing.JFrame {
         jMenu2 = new javax.swing.JMenu();
         cleanConsoleButton = new javax.swing.JMenuItem();
         compileButton = new javax.swing.JMenuItem();
+        playButton = new javax.swing.JMenuItem();
+        translatePigLatin = new javax.swing.JMenuItem();
+        jMenu3 = new javax.swing.JMenu();
+        graphAST = new javax.swing.JMenuItem();
+        graphSymbolTable = new javax.swing.JMenuItem();
+        graphCallStack = new javax.swing.JMenuItem();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
+        textIde.addCaretListener(this::textIdeCaretUpdate);
         jScrollPane1.setViewportView(textIde);
 
         lblLine.setFont(new java.awt.Font("Segoe UI", 0, 18)); // NOI18N
@@ -86,9 +155,11 @@ public class CodexLatinus extends javax.swing.JFrame {
         jMenu1.add(openFileButton);
 
         saveFileButton.setText("Save File");
+        saveFileButton.addActionListener(this::saveFileButtonActionPerformed);
         jMenu1.add(saveFileButton);
 
         closeFileButton.setText("Close File");
+        closeFileButton.addActionListener(this::closeFileButtonActionPerformed);
         jMenu1.add(closeFileButton);
 
         jMenuBar1.add(jMenu1);
@@ -96,12 +167,38 @@ public class CodexLatinus extends javax.swing.JFrame {
         jMenu2.setText("Options");
 
         cleanConsoleButton.setText("Clean Console");
+        cleanConsoleButton.addActionListener(this::cleanConsoleButtonActionPerformed);
         jMenu2.add(cleanConsoleButton);
 
         compileButton.setText("Compile");
+        compileButton.addActionListener(this::compileButtonActionPerformed);
         jMenu2.add(compileButton);
 
+        playButton.setText("Play");
+        playButton.addActionListener(this::playButtonActionPerformed);
+        jMenu2.add(playButton);
+
+        translatePigLatin.setText("Translate to PigLatin");
+        translatePigLatin.addActionListener(this::translatePigLatinActionPerformed);
+        jMenu2.add(translatePigLatin);
+
         jMenuBar1.add(jMenu2);
+
+        jMenu3.setText("Images");
+
+        graphAST.setText("Graph AST");
+        graphAST.addActionListener(this::graphASTActionPerformed);
+        jMenu3.add(graphAST);
+
+        graphSymbolTable.setText("Symbol Table");
+        graphSymbolTable.addActionListener(this::graphSymbolTableActionPerformed);
+        jMenu3.add(graphSymbolTable);
+
+        graphCallStack.setText("Calls Stack");
+        graphCallStack.addActionListener(this::graphCallStackActionPerformed);
+        jMenu3.add(graphCallStack);
+
+        jMenuBar1.add(jMenu3);
 
         setJMenuBar(jMenuBar1);
 
@@ -150,21 +247,33 @@ public class CodexLatinus extends javax.swing.JFrame {
     private void newFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_newFileButtonActionPerformed
         // TODO add your handling code here:
         JFileChooser fc = new JFileChooser();
-        fc.setDialogTitle("Please specify de directory");        
-        int file = fc.showSaveDialog(this);
-        
-        if(file == JFileChooser.APPROVE_OPTION){
-            File newFile = fc.getSelectedFile();
-            try {
-                if(newFile.createNewFile()){
-                    JOptionPane.showMessageDialog(this, "File created " + newFile.getName());
-                } else {
-                    JOptionPane.showMessageDialog(this, "File alrady exists");
-                }
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(this, "Error creating file: " + e.getMessage());
-            }
+        fc.setDialogTitle("Nuevo archivo");
+        int res = fc.showSaveDialog(this);
+        if (res != JFileChooser.APPROVE_OPTION) {
+            return;
         }
+
+        File nuevoArchivo = fc.getSelectedFile();
+        if (!nuevoArchivo.getName().toLowerCase().endsWith(".lat")) {
+            nuevoArchivo = new File(nuevoArchivo.getParentFile(), nuevoArchivo.getName() + ".lat");
+        }
+
+        try {
+            if (!nuevoArchivo.exists() && !nuevoArchivo.createNewFile()) {
+                JOptionPane.showMessageDialog(this, "No se pudo crear el archivo", "Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Error creando el archivo: " + e.getMessage(), "Error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        textIde.setText("");
+        jTextArea1.setText("");
+        archivoActual = nuevoArchivo;
+        astActual = null;
+        tablaSimbolos = null;
+        pasosPila = null;
     }//GEN-LAST:event_newFileButtonActionPerformed
 
     private void openFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_openFileButtonActionPerformed
@@ -191,6 +300,361 @@ public class CodexLatinus extends javax.swing.JFrame {
         }
     }//GEN-LAST:event_openFileButtonActionPerformed
 
+    private void textIdeCaretUpdate(javax.swing.event.CaretEvent evt) {//GEN-FIRST:event_textIdeCaretUpdate
+        // TODO add your handling code here:
+       actualizarPosicionCursor();
+    }//GEN-LAST:event_textIdeCaretUpdate
+
+    private void saveFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_saveFileButtonActionPerformed
+        // TODO add your handling code here:
+         if (archivoActual == null) {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Save AS");
+            int res = fc.showSaveDialog(this);
+            if (res != JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+            archivoActual = fc.getSelectedFile();
+            if (!archivoActual.getName().toLowerCase().endsWith(".lat")) {
+                archivoActual = new File(archivoActual.getParentFile(), archivoActual.getName() + ".lat");
+            }
+        }
+
+        try (FileWriter fw = new FileWriter(archivoActual)) {
+            fw.write(textIde.getText());
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Dont Save the file: " + e.getMessage(), "Error", JOptionPane.WARNING_MESSAGE);
+        }
+    }//GEN-LAST:event_saveFileButtonActionPerformed
+
+    private void graphASTActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_graphASTActionPerformed
+        // TODO add your handling code here:
+        if (astActual == null) {
+            JOptionPane.showMessageDialog(this, "Primero compila el codigo sin errores.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        mostrarGrafica("AST", new NodeAst(astActual));
+    }//GEN-LAST:event_graphASTActionPerformed
+
+    private void graphCallStackActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_graphCallStackActionPerformed
+        // TODO add your handling code here:
+        if (pasosPila == null || pasosPila.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Primero compila (aunque tenga errores).", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String[] columnas = {"Paso", "Operacion", "Pila"};
+        DefaultTableModel modelo = new DefaultTableModel(columnas, 0) {
+            @Override
+            public boolean isCellEditable(int fila, int columna) {
+                return false;
+            }
+        };
+        for (int i = 0; i < pasosPila.size(); i++) {
+            var paso = pasosPila.get(i);
+            modelo.addRow(new Object[]{i + 1, paso.operacion(), String.join(" | ", paso.pila())});
+        }
+
+        JTable tabla = new JTable(modelo);
+        tabla.setAutoCreateRowSorter(true);
+        tabla.setRowHeight(22);
+
+        JDialog dialog = new JDialog(this, "Pila de Llamadas del Analizador", true);
+        dialog.add(new JScrollPane(tabla));
+        dialog.setSize(1000, 650);
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }//GEN-LAST:event_graphCallStackActionPerformed
+
+    private void compileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_compileButtonActionPerformed
+        // TODO add your handling code here:
+        jTextArea1.setText("");
+            astActual = null;
+            tablaSimbolos = null;
+            pasosPila = null;
+
+            String codigo = textIde.getText();
+            if (codigo == null || codigo.isBlank()) {
+                jTextArea1.append("No hay codigo que compilar.\n");
+                return;
+            }
+
+            List<CompileError> erroresLexicos = new ArrayList<>();
+            List<CompileError> erroresSintacticos = new ArrayList<>();
+
+            CharStream cs = CharStreams.fromString(codigo);
+            GrammarLexer lexer = new GrammarLexer(cs);
+            lexer.removeErrorListeners();
+            lexer.addErrorListener(new BaseErrorListener() {
+                @Override
+                public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line, int col, String msg, RecognitionException e) {
+                    if (erroresLexicos.size() < MAX_ERRORES_MOSTRADOS) {
+                        erroresLexicos.add(new CompileError("lexico", msg, line, col));
+                    }
+                }
+            });
+
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
+            GrammarParser parser = new GrammarParser(tokens);
+            parser.setErrorHandler(new RecuperacionPanico());
+            parser.removeErrorListeners();
+            parser.addErrorListener(new BaseErrorListener() {
+                @Override
+                public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line, int col, String msg, RecognitionException e) {
+                    if (erroresSintacticos.size() < MAX_ERRORES_MOSTRADOS) {
+                        erroresSintacticos.add(new CompileError("sintactico", msg, line, col));
+                    }
+                }
+            });
+
+            RegistradorPila registrador = new RegistradorPila(parser.getRuleNames());
+            parser.addParseListener(registrador);
+
+            GrammarParser.ProgramContext arbol;
+            try {
+                arbol = parser.program();
+            } catch (RecuperacionException ex) {
+                pasosPila = registrador.pasos();
+                for (CompileError err : erroresLexicos) jTextArea1.append(err.toString() + "\n");
+                for (CompileError err : erroresSintacticos) jTextArea1.append(err.toString() + "\n");
+                jTextArea1.append("[sintactico] " + ex.getMessage() + "\n");
+                return;
+            }
+            pasosPila = registrador.pasos();
+
+            List<CompileError> erroresSemanticos = new ArrayList<>();
+            ProgramNode ast = null;
+            String analisisSemanticoOmitido = null;
+            if (arbol.declaracionPrgrama() != null) {
+                try {
+                    ast = (ProgramNode) new AstBuilderVisitor().visit(arbol);
+                    SemanticAnalyzer analizador = new SemanticAnalyzer();
+                    erroresSemanticos = analizador.analyze(ast);
+                    if (erroresLexicos.isEmpty() && erroresSintacticos.isEmpty() && erroresSemanticos.isEmpty()) {
+                        astActual = ast;
+                        tablaSimbolos = analizador.symbolTable();
+                    }
+                } catch (RuntimeException ex) {
+                    analisisSemanticoOmitido = "no se pudo completar el analisis semantico: el arbol quedo demasiado incompleto";
+                }
+            } else if (!erroresLexicos.isEmpty() || !erroresSintacticos.isEmpty()) {
+                analisisSemanticoOmitido = "no se pudo completar el analisis semantico: el parser no logro reconocer la seccion principal";
+            }
+
+            for (CompileError err : erroresLexicos) jTextArea1.append(err.toString() + "\n");
+            for (CompileError err : erroresSintacticos) jTextArea1.append(err.toString() + "\n");
+            for (CompileError err : erroresSemanticos) jTextArea1.append(err.toString() + "\n");
+            if (analisisSemanticoOmitido != null) jTextArea1.append("(" + analisisSemanticoOmitido + ")\n");
+
+            if (erroresLexicos.isEmpty() && erroresSintacticos.isEmpty() && erroresSemanticos.isEmpty() && analisisSemanticoOmitido == null) {
+                jTextArea1.append("Compilacion exitosa, no se encontraron errores.\n");
+            }
+    }//GEN-LAST:event_compileButtonActionPerformed
+
+    private void cleanConsoleButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_cleanConsoleButtonActionPerformed
+        // TODO add your handling code here:
+        jTextArea1.setText("");
+    }//GEN-LAST:event_cleanConsoleButtonActionPerformed
+
+    private void closeFileButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_closeFileButtonActionPerformed
+        // TODO add your handling code here:
+        textIde.setText("");
+        jTextArea1.setText("");
+        archivoActual = null;
+        astActual = null;
+        tablaSimbolos = null;
+        pasosPila = null;
+    }//GEN-LAST:event_closeFileButtonActionPerformed
+
+    private void playButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_playButtonActionPerformed
+        // TODO add your handling code here:
+        if (astActual == null) {
+            JOptionPane.showMessageDialog(this, "Primero compila el codigo sin errores.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        ProgramNode programa = astActual;
+        jTextArea1.append("--- Ejecutando ---\n");
+
+        Thread hiloInterprete = new Thread(() -> {
+            try {
+                new Interprete(new ConsolaSwing()).ejecutar(programa);
+                SwingUtilities.invokeLater(() -> jTextArea1.append("--- Ejecucion terminada ---\n"));
+            } catch (ErrorEjecucion ex) {
+                SwingUtilities.invokeLater(() -> jTextArea1.append("[ejecucion] " + ex.linea() + ":" + ex.columna() + " - " + ex.getMessage() + "\n"));
+            } catch (StackOverflowError ex) {
+                SwingUtilities.invokeLater(() -> jTextArea1.append("[ejecucion] recursion demasiado profunda\n"));
+            } catch (RuntimeException ex) {
+                SwingUtilities.invokeLater(() -> jTextArea1.append("[ejecucion] error inesperado: " + ex.getMessage() + "\n"));
+            }
+        }, "codex-latinus-interprete");
+        hiloInterprete.setDaemon(true);
+        hiloInterprete.start();
+    }//GEN-LAST:event_playButtonActionPerformed
+
+    private void graphSymbolTableActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_graphSymbolTableActionPerformed
+        // TODO add your handling code here:
+        if (tablaSimbolos == null) {
+            JOptionPane.showMessageDialog(this, "Primero compila el codigo sin errores.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        DefaultTableModel modelo = construirModeloTabla(tablaSimbolos);
+        JTable tabla = new JTable(modelo);
+        tabla.setAutoCreateRowSorter(true);
+        tabla.setRowHeight(22);
+
+        JDialog dialog = new JDialog(this, "Tabla de Simbolos", true);
+        dialog.add(new JScrollPane(tabla));
+        dialog.setSize(950, 550);
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }//GEN-LAST:event_graphSymbolTableActionPerformed
+
+    private void translatePigLatinActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_translatePigLatinActionPerformed
+        // TODO add your handling code here:
+        if (astActual == null) {
+            JOptionPane.showMessageDialog(this, "Primero compila el codigo sin errores.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        StringBuffer sb = new StringBuffer();
+        astActual.toPigLatin(sb);
+        String pigLatin = sb.toString();
+
+        JTextArea area = new JTextArea(pigLatin, 25, 70);
+        area.setEditable(false);
+
+        JButton guardarBtn = new JButton("Guardar como .pig");
+        JButton cerrarBtn = new JButton("Cerrar");
+
+        JDialog dialog = new JDialog(this, "Traduccion a PigLatin", true);
+        dialog.setLayout(new java.awt.BorderLayout());
+        dialog.add(new JScrollPane(area), java.awt.BorderLayout.CENTER);
+
+        JPanel botones = new JPanel();
+        botones.add(guardarBtn);
+        botones.add(cerrarBtn);
+        dialog.add(botones, java.awt.BorderLayout.SOUTH);
+
+        guardarBtn.addActionListener(e -> guardarPigLatin(pigLatin));
+        cerrarBtn.addActionListener(e -> dialog.dispose());
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }//GEN-LAST:event_translatePigLatinActionPerformed
+
+    private void mostrarGrafica(String titulo, NodeGraph raiz) {
+        TreePanel panel = new TreePanel(raiz);
+        JScrollPane scroll = new JScrollPane(panel);
+
+        JDialog dialog = new JDialog(this, titulo, true);
+        dialog.add(scroll);
+        dialog.setSize(1000, 650);
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }
+    
+    private void actualizarPosicionCursor() {
+        int pos = textIde.getCaretPosition();
+        Element raiz = textIde.getDocument().getDefaultRootElement();
+        int linea = raiz.getElementIndex(pos) + 1;
+        int inicioLinea = raiz.getElement(linea - 1).getStartOffset();
+        int columna = pos - inicioLinea + 1;
+        lblLine.setText("Line: " + linea);
+        lblLine1.setText("Column: " + columna);
+    }
+    
+    private DefaultTableModel construirModeloTabla(SymbolTable tabla) {
+        String[] columnas = {"Nombre", "Categoria", "Tipo", "Ambito", "Arreglo", "Linea"};
+        DefaultTableModel modelo = new DefaultTableModel(columnas, 0) {
+            @Override
+            public boolean isCellEditable(int fila, int columna) {
+                return false;
+            }
+        };
+
+        for (StructSymbol s : tabla.structs().values()) {
+            modelo.addRow(new Object[]{s.name(), "Estructura", "-", "global", "-", s.line()});
+            s.attributes().forEach((nombreAtributo, info) ->
+                    modelo.addRow(new Object[]{nombreAtributo, "Atributo de " + s.name(), info.type(), "-",
+                            info.isArray() ? "Si" : "No", "-"}));
+        }
+
+        for (FunctionSymbol f : tabla.functions().values()) {
+            String retorno = f.returnType() == null ? "sin retorno" : f.returnType();
+            modelo.addRow(new Object[]{f.name(), "Funcion", retorno, "global", "-", f.line()});
+            for (VariableSymbol parametro : f.parameters()) {
+                modelo.addRow(new Object[]{parametro.name(), "Parametro de " + f.name(), parametro.type(),
+                        "func:" + f.name(), "No", parametro.line()});
+            }
+        }
+
+        agregarFilasAmbito(modelo, tabla.globalScope());
+        return modelo;
+    }
+
+    private void agregarFilasAmbito(DefaultTableModel modelo, Scope scope) {
+        for (VariableSymbol variable : scope.variables().values()) {
+            if (variable.isParameter()) {
+                continue;
+            }
+            String arreglo = variable.isArray() ? "Si [" + variable.arraySize() + "]" : "No";
+            modelo.addRow(new Object[]{variable.name(), "Variable", variable.type(), scope.label(), arreglo, variable.line()});
+        }
+        for (Scope hijo : scope.children()) {
+            agregarFilasAmbito(modelo, hijo);
+        }
+    }
+    
+    private final class ConsolaSwing implements ConsolaIO {
+        @Override
+        public void escribir(String texto) {
+            SwingUtilities.invokeLater(() -> jTextArea1.append(texto + "\n"));
+        }
+
+        @Override
+        public String leer(String etiqueta) {
+            String[] resultado = {""};
+            String mensaje = etiqueta != null ? "Ingresa un valor para '" + etiqueta + "':" : "Presiona OK para continuar:";
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    String respuesta = JOptionPane.showInputDialog(CodexLatinus.this, mensaje, "Entrada de consola", JOptionPane.QUESTION_MESSAGE);
+                    resultado[0] = respuesta != null ? respuesta : "";
+                });
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                resultado[0] = "";
+            }
+            return resultado[0];
+        }
+    }
+    
+    private void guardarPigLatin(String contenido) {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Guardar traduccion PigLatin");
+        if (archivoActual != null) {
+            String nombre = archivoActual.getName().replaceFirst("\\.lat$", "") + ".pig";
+            fc.setSelectedFile(new File(archivoActual.getParentFile(), nombre));
+        }
+        int res = fc.showSaveDialog(this);
+        if (res != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File destino = fc.getSelectedFile();
+        if (!destino.getName().toLowerCase().endsWith(".pig")) {
+            destino = new File(destino.getParentFile(), destino.getName() + ".pig");
+        }
+        try (FileWriter fw = new FileWriter(destino)) {
+            fw.write(contenido);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "No se pudo guardar: " + e.getMessage(), "Error", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+    
+    private void colorearDespues() {
+        SwingUtilities.invokeLater(() -> paintWord.colorear(textIde));
+    }
     /**
      * @param args the command line arguments
      */
@@ -208,7 +672,7 @@ public class CodexLatinus extends javax.swing.JFrame {
                 }
             }
         } catch (ReflectiveOperationException | javax.swing.UnsupportedLookAndFeelException ex) {
-            logger.log(java.util.logging.Level.SEVERE, null, ex);
+
         }
         //</editor-fold>
 
@@ -220,10 +684,14 @@ public class CodexLatinus extends javax.swing.JFrame {
     private javax.swing.JMenuItem cleanConsoleButton;
     private javax.swing.JMenuItem closeFileButton;
     private javax.swing.JMenuItem compileButton;
+    private javax.swing.JMenuItem graphAST;
+    private javax.swing.JMenuItem graphCallStack;
+    private javax.swing.JMenuItem graphSymbolTable;
     private javax.swing.JButton jButton1;
     private javax.swing.JButton jButton2;
     private javax.swing.JMenu jMenu1;
     private javax.swing.JMenu jMenu2;
+    private javax.swing.JMenu jMenu3;
     private javax.swing.JMenuBar jMenuBar1;
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JScrollPane jScrollPane2;
@@ -232,7 +700,9 @@ public class CodexLatinus extends javax.swing.JFrame {
     private javax.swing.JLabel lblLine1;
     private javax.swing.JMenuItem newFileButton;
     private javax.swing.JMenuItem openFileButton;
+    private javax.swing.JMenuItem playButton;
     private javax.swing.JMenuItem saveFileButton;
     private javax.swing.JTextPane textIde;
+    private javax.swing.JMenuItem translatePigLatin;
     // End of variables declaration//GEN-END:variables
 }
